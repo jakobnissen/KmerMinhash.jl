@@ -21,10 +21,4 @@ load_sketches,
 save_sketches,
 =#
 
-a = randdnaseq(1000)
-b = randdnaseq(1000)
-c = kmer_minhash(a, 10, Val(10))
-d = kmer_minhash(b, 10, Val(10))
-e = [c, d]
-
 end # module

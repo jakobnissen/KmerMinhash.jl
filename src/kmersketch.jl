@@ -1,9 +1,9 @@
 mutable struct FastaIterator{A}
-    reader::FASTA.Reader
+    reader::FASTA.Reader # UnionAll type, but whatever
     record::FASTA.Record
     seq::LongSequence{A}
 
-    function FastaIterator{A}(reader, record, seq) where {A <: BioSequences.Alphabet}
+    function FastaIterator{A}(reader, record, seq) where {A <: BioSequences.Alphabet, R}
         new(reader, record, seq)
     end
 end
@@ -13,11 +13,11 @@ function FastaIterator{A}(reader::FASTA.Reader) where {A <: BioSequences.Alphabe
 end
 
 function FastaIterator{A}(io::IO) where {A <: BioSequences.Alphabet}
-    return FastaIterator{A}(FASTA.Reader(io), FASTA.Record(), LongSequence{A}())
+    return FastaIterator{A}(FASTA.Reader(io))
 end
 
 function FastaIterator{A}(path::AbstractString) where {A <: BioSequences.Alphabet}
-    return FastaIterator{A}(FASTA.Reader(open(path)), FASTA.Record(), LongSequence{A}())
+    return FastaIterator{A}(FASTA.Reader(open(path)))
 end
 
 function Base.iterate(it::FastaIterator, ::Nothing=nothing)
@@ -38,13 +38,12 @@ function CanonicalKmerIterator(it::M) where {M <: BioSequences.AbstractMerIterat
     return CanonicalKmerIterator{M}(it)
 end
 
-function Base.iterate(it::CanonicalKmerIterator, state...)
-    itval = iterate(it.it, state...)
-    itval == nothing && return nothing
-    val, state = itval
-    return canonical(val), state
+@inline function Base.iterate(it::CanonicalKmerIterator, s...)
+    itval = iterate(it.it, s...)
+    itval === nothing && return nothing
+    itval = itval::Tuple{Any, Any} # hack from Base.generator to help inference
+    return canonical(itval[1]), itval[2]
 end
-
 
 mutable struct KmerSketcher{M,F}
     hasher::MinHasher{F}
@@ -75,7 +74,7 @@ function update!(sketcher::KmerSketcher{M}, seq::BioSequence) where M
 end
 
 function update!(sketcher::KmerSketcher, io::IO)
-    it = FastaIterator{DNAAlphabet{2}}(io)
+    it = FastaIterator{DNAAlphabet{4}}(io)
     for seq in it
         update!(sketcher, seq)
     end
@@ -114,7 +113,7 @@ function kmer_minhash_each(it, s::Integer, ::Val{K}) where K
 end
 
 function kmer_minhash_each(io::IO, s::Integer, v::Val)
-    it = FastaIterator{DNAAlphabet{2}}(io)
+    it = FastaIterator{DNAAlphabet{4}}(io)
     return kmer_minhash_each(it, s, v)
 end
 
@@ -126,19 +125,3 @@ function intersectionlength(v::Vector{KmerHashes{K,F}}) where {K,F}
     v2 = [i.sketch for i in v]
     return MinHash.intersectionlength(v2)
 end
-#= TODO:
-
-=#
-
-#= How would I want the interface to be?
-
-Sketch all sequences in a file:
-    kmer_minhash(io::IO, s, ::Val{K})
-
-Sketch a sequence
-    kmer_minhash(seq::BioSequence, s, ::Val{K})
-
-Maybe something to get all sketches of a file re-using the same sketcher?
-    kmer_minhash(io::IO, s, ::Val{K})
-
-=#
