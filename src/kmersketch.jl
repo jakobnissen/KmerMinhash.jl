@@ -20,6 +20,10 @@ function FastaIterator{A}(path::AbstractString) where {A <: BioSequences.Alphabe
     return FastaIterator{A}(FASTA.Reader(open(path)))
 end
 
+Base.eltype(::Type{FastaIterator{A}}) where A = LongSequence{A}
+Base.IteratorEltype(::Type{FastaIterator{A}}) where A = Base.HasEltype()
+Base.IteratorSize(::Type{<:FastaIterator}) = Base.SizeUnknown()
+
 function Base.iterate(it::FastaIterator, ::Nothing=nothing)
     if eof(it.reader)
         close(it.reader)
@@ -38,6 +42,10 @@ function CanonicalKmerIterator(it::M) where {M <: BioSequences.AbstractMerIterat
     return CanonicalKmerIterator{M}(it)
 end
 
+Base.IteratorEltype(::Type{CanonicalKmerIterator{M}}) where M = Base.HasEltype()
+Base.IteratorSize(::Type{CanonicalKmerIterator{M}}) where M = Base.IteratorSize(M)
+Base.length(x::CanonicalKmerIterator{M}) where M = length(x.it)
+
 @inline function Base.iterate(it::CanonicalKmerIterator, s...)
     itval = iterate(it.it, s...)
     itval === nothing && return nothing
@@ -49,11 +57,12 @@ mutable struct KmerSketcher{M,F}
     hasher::MinHasher{F}
     bases::Int
 
-    function KmerSketcher{M,F}(h::MinHasher) where {M <: Mer, F}
+    function KmerSketcher{M,F}(h::MinHasher{F}) where {M <: Mer, F}
         new{M,F}(h, 0)
     end
 end
 
+KmerSketcher{M}(h::MinHasher{F}) where {M,F} = KmerSketcher{M,F}(h)
 function KmerSketcher{M,F}(s::Integer) where {M <: Mer, F}
     KmerSketcher{M,F}(MinHasher(s))
 end
@@ -117,6 +126,43 @@ function kmer_minhash_each(io::IO, s::Integer, v::Val)
     return kmer_minhash_each(it, s, v)
 end
 
+#=
+function _add_minhash(result::Vector, path::String, i::Integer, s::Integer, v::Val)
+    result[i] = open(path) do file
+        kmer_minhash(file, s, v)
+    end
+end
+
+function kmer_minhash_paths(paths::Vector{String}, s::Integer, v::Val{K}) where K
+    result = Vector{KmerHashes{K,hash}}(undef, length(paths))
+    processes = Vector{Task}(undef, length(paths))
+    for i in eachindex(paths)
+        processes[i] = Threads.@spawn _add_minhash(result, paths[i], i, s, v)
+    end
+    foreach(wait, processes)
+    return result
+end
+
+
+function _kmer_minhash(path::String, s::Integer, v::Val)
+    return open(path) do file
+        kmer_minhash(file, s, v)
+    end
+end
+=#
+
+function kmer_minhash_paths(paths::Vector{String}, s::Integer, v::Val{K}) where K
+    processes = Task[]
+    for path in paths
+        push!(processes, Threads.@spawn open(x -> kmer_minhash(x, s, v), path))
+    end
+    result = KmerHashes{K,hash}[]
+    for process in processes
+        push!(result, fetch(process))
+    end
+    return result
+end
+
 function intersectionlength(x::T, y::T) where {T<:KmerHashes}
     return MinHash.intersectionlength(x.sketch, y.sketch)
 end
@@ -124,4 +170,10 @@ end
 function intersectionlength(v::Vector{KmerHashes{K,F}}) where {K,F}
     v2 = [i.sketch for i in v]
     return MinHash.intersectionlength(v2)
+end
+
+function mash_length(h1::KmerHashes{K,F}, h2::KmerHashes{K,F}) where {K,F}
+    w = intersectionlength(h1, h2)
+    j = w / (length(h1.sketch) + length(h2.sketch) - w)
+    return iszero(w) ? 1.0 : -log(2j / (j+1)) / k
 end
