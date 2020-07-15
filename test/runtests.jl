@@ -4,6 +4,8 @@ using Test
 using FASTX
 using BioSequences
 
+TESTPATH = joinpath(dirname(@__FILE__), "data", "test.fna")
+
 ## FastaIterator
 @testset "FastaIterator" begin
     function test_fastaiterator(one::FastaIterator{T}, two) where T
@@ -16,8 +18,7 @@ using BioSequences
         close(two)
     end
 
-
-    path = "/Users/jakni/Documents/scripts/Kash/test/data/test.fna"
+    path = TESTPATH
     for T in [DNAAlphabet{2}, DNAAlphabet{4}]
         # Instantiate from FASTA Reader
         reader_one = FastaIterator{T}(FASTA.Reader(open(path)))
@@ -117,14 +118,62 @@ end
         empty!(sk)
         Kash.update!(sk, randdnaseq(10))
         test_update(sk, randdnaseq(100))
+
+        empty!(sk)
+        test_update(sk, dna"")
     end
 end
 
-## Kmerhashes
-
 ## High-level API
+@testset "High-level API" begin
+    function manual_kmerhashes(io::IO, A, M::Type{<:Mer}, N::Integer)
+        hashes = Set{UInt}()
+        reader = FASTA.Reader(io)
+        for entry in reader
+            seq = FASTA.sequence(LongSequence{A}, entry)
+            for kmer in each(M, seq)
+                push!(hashes, hash(canonical(kmer)))
+            end
+        end
+        return sort!(collect(hashes))[1:N]
+    end
 
+    manual = open(TESTPATH) do file
+        manual_kmerhashes(file, DNAAlphabet{4}, DNAMer{3}, 20)
+    end
+    kash = open(TESTPATH) do file
+        kmer_minhash(file, 20, Val(3)).sketch.hashes
+    end
+    @test manual == kash
 
-@testset "Kash.jl" begin
-    # Write your own tests here.
+    function manual_kmerhashes_each(io::IO, A, M::Type{<:Mer}, N::Integer)
+        hashvectors = []
+        reader = FASTA.Reader(io)
+        for entry in reader
+            seq = FASTA.sequence(LongSequence{A}, entry)
+            hashes = Set{UInt}()
+            for kmer in each(M, seq)
+                push!(hashes, hash(canonical(kmer)))
+            end
+            push!(hashvectors, sort!(collect(hashes))[1:min(N, length(hashes))])
+        end
+        return hashvectors
+    end
+
+    manual = open(TESTPATH) do file
+        manual_kmerhashes_each(file, DNAAlphabet{4}, DNAMer{3}, 20)
+    end
+    kash = open(TESTPATH) do file
+        [x.sketch.hashes for x in kmer_minhash_each(file, 20, Val(3))]
+    end
+    @test manual == kash
+
 end
+
+# TODO:
+# Serialization
+
+# Then add an AA and a IUPAC DNA file
+# Run tests with all 3 alphabets
+# Then check codecov
+# Add documentation

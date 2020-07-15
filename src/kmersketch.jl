@@ -126,31 +126,6 @@ function kmer_minhash_each(io::IO, s::Integer, v::Val)
     return kmer_minhash_each(it, s, v)
 end
 
-#=
-function _add_minhash(result::Vector, path::String, i::Integer, s::Integer, v::Val)
-    result[i] = open(path) do file
-        kmer_minhash(file, s, v)
-    end
-end
-
-function kmer_minhash_paths(paths::Vector{String}, s::Integer, v::Val{K}) where K
-    result = Vector{KmerHashes{K,hash}}(undef, length(paths))
-    processes = Vector{Task}(undef, length(paths))
-    for i in eachindex(paths)
-        processes[i] = Threads.@spawn _add_minhash(result, paths[i], i, s, v)
-    end
-    foreach(wait, processes)
-    return result
-end
-
-
-function _kmer_minhash(path::String, s::Integer, v::Val)
-    return open(path) do file
-        kmer_minhash(file, s, v)
-    end
-end
-=#
-
 function kmer_minhash_paths(paths::Vector{String}, s::Integer, v::Val{K}) where K
     processes = Task[]
     for path in paths
